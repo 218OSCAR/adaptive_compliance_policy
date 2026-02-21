@@ -1,0 +1,277 @@
+name: cable_mounting
+
+# =========================
+# Sampling params
+# =========================
+# 15Hz 数据：这里给一个合理的默认（你后续可按任务节奏调）
+sparse_obs_rgb_down_sample_steps: 1
+sparse_obs_rgb_horizon: 2
+
+sparse_obs_tactile_down_sample_steps: 1
+sparse_obs_tactile_horizon: 2
+
+sparse_obs_low_dim_down_sample_steps: 1
+sparse_obs_low_dim_horizon: 3
+
+# 只有右手有 wrench
+sparse_obs_wrench_down_sample_steps: 1
+sparse_obs_wrench_horizon: 16
+
+# 动作序列：按你的控制频率/执行器需求调
+sparse_action_down_sample_steps: 1
+sparse_action_horizon: 16
+
+
+# =========================
+# Shape meta
+# =========================
+shape_meta: &shape_meta
+  id_list: [0, 1]
+
+  # -------------------------
+  # raw: zarr 里实际存了什么 key
+  # -------------------------
+  raw:
+    # --- visual ---
+    rgb_0:
+      shape: [3, 224, 224]
+      type: rgb
+    rgb_1:
+      shape: [3, 224, 224]
+      type: rgb
+    tactile:
+      shape: [3, 224, 224]
+      type: rgb
+
+    # --- right arm low-dim ---
+    ts_pose_fb_0:
+      shape: [7]
+      type: low_dim
+    ts_pose_command_0:
+      shape: [7]
+      type: low_dim
+    ts_pose_virtual_target_0:
+      shape: [7]
+      type: low_dim
+    stiffness_0:
+      shape: [1]
+      type: low_dim
+    wrench_0:
+      shape: [6]
+      type: low_dim
+    fingertip_width_0:
+      shape: [1]
+      type: low_dim
+
+    # --- left arm low-dim (NO wrench on left) ---
+    ts_pose_fb_1:
+      shape: [7]
+      type: low_dim
+    ts_pose_command_1:
+      shape: [7]
+      type: low_dim
+    fingertip_width_1:
+      shape: [1]
+      type: low_dim
+
+    # --- timestamps ---
+    rgb_time_stamps_0:
+      shape: [1]
+      type: timestamp
+    rgb_time_stamps_1:
+      shape: [1]
+      type: timestamp
+    tactile_time_stamps:
+      shape: [1]
+      type: timestamp
+
+    robot_time_stamps_0:
+      shape: [1]
+      type: timestamp
+    robot_time_stamps_1:
+      shape: [1]
+      type: timestamp
+
+    wrench_time_stamps_0:
+      shape: [1]
+      type: timestamp
+
+
+  # -------------------------
+  # obs: 模型实际输入（dataset raw_to_obs_action 产出）
+  # -------------------------
+  obs:
+    # --- visual obs ---
+    rgb_0:
+      shape: [3, 224, 224]
+      type: rgb
+    rgb_1:
+      shape: [3, 224, 224]
+      type: rgb
+    tactile:
+      shape: [3, 224, 224]
+      type: rgb
+
+    # --- right obs ---
+    robot0_eef_pos:
+      shape: [3]
+      type: low_dim
+    robot0_eef_rot_axis_angle:
+      shape: [6]
+      type: low_dim
+      rotation_rep: rotation_6d
+
+    robot0_abs_eef_pos:
+      shape: [3]
+      type: low_dim
+    robot0_abs_eef_rot_axis_angle:
+      shape: [6]
+      type: low_dim
+      rotation_rep: rotation_6d
+
+    robot0_eef_wrench:
+      shape: [6]
+      type: low_dim
+
+    robot0_fingertip_width:
+      shape: [1]
+      type: low_dim
+
+    # --- left obs (NO wrench) ---
+    robot1_eef_pos:
+      shape: [3]
+      type: low_dim
+    robot1_eef_rot_axis_angle:
+      shape: [6]
+      type: low_dim
+      rotation_rep: rotation_6d
+
+    robot1_abs_eef_pos:
+      shape: [3]
+      type: low_dim
+    robot1_abs_eef_rot_axis_angle:
+      shape: [6]
+      type: low_dim
+      rotation_rep: rotation_6d
+
+    robot1_fingertip_width:
+      shape: [1]
+      type: low_dim
+
+    # --- timestamps also passed through (可选，但你现有 pipeline 常用) ---
+    rgb_time_stamps_0:
+      shape: [1]
+      type: timestamp
+    rgb_time_stamps_1:
+      shape: [1]
+      type: timestamp
+    tactile_time_stamps:
+      shape: [1]
+      type: timestamp
+    robot_time_stamps_0:
+      shape: [1]
+      type: timestamp
+    robot_time_stamps_1:
+      shape: [1]
+      type: timestamp
+    wrench_time_stamps_0:
+      shape: [1]
+      type: timestamp
+
+
+  # -------------------------
+  # action: policy 输出维度
+  # -------------------------
+  # Right:  pose9 + vt_pose9 + stiffness1 + grip1 = 20
+  # Left:   pose9 + grip1 = 10
+  # Total = 30
+  action:
+    shape: [30]
+    rotation_rep: rotation_6d
+
+
+  # -------------------------
+  # sample: batch 里每个 key 的 horizon / downsample
+  # -------------------------
+  sample:
+    obs:
+      sparse:
+        rgb_0:
+          horizon: ${task.sparse_obs_rgb_horizon}
+          down_sample_steps: ${task.sparse_obs_rgb_down_sample_steps}
+        rgb_1:
+          horizon: ${task.sparse_obs_rgb_horizon}
+          down_sample_steps: ${task.sparse_obs_rgb_down_sample_steps}
+        tactile:
+          horizon: ${task.sparse_obs_tactile_horizon}
+          down_sample_steps: ${task.sparse_obs_tactile_down_sample_steps}
+
+        # right low-dim
+        robot0_eef_pos:
+          horizon: ${task.sparse_obs_low_dim_horizon}
+          down_sample_steps: ${task.sparse_obs_low_dim_down_sample_steps}
+        robot0_eef_rot_axis_angle:
+          horizon: ${task.sparse_obs_low_dim_horizon}
+          down_sample_steps: ${task.sparse_obs_low_dim_down_sample_steps}
+        robot0_abs_eef_pos:
+          horizon: ${task.sparse_obs_low_dim_horizon}
+          down_sample_steps: ${task.sparse_obs_low_dim_down_sample_steps}
+        robot0_abs_eef_rot_axis_angle:
+          horizon: ${task.sparse_obs_low_dim_horizon}
+          down_sample_steps: ${task.sparse_obs_low_dim_down_sample_steps}
+        robot0_fingertip_width:
+          horizon: ${task.sparse_obs_low_dim_horizon}
+          down_sample_steps: ${task.sparse_obs_low_dim_down_sample_steps}
+        robot0_eef_wrench:
+          horizon: ${task.sparse_obs_wrench_horizon}
+          down_sample_steps: ${task.sparse_obs_wrench_down_sample_steps}
+
+        # left low-dim (no wrench)
+        robot1_eef_pos:
+          horizon: ${task.sparse_obs_low_dim_horizon}
+          down_sample_steps: ${task.sparse_obs_low_dim_down_sample_steps}
+        robot1_eef_rot_axis_angle:
+          horizon: ${task.sparse_obs_low_dim_horizon}
+          down_sample_steps: ${task.sparse_obs_low_dim_down_sample_steps}
+        robot1_abs_eef_pos:
+          horizon: ${task.sparse_obs_low_dim_horizon}
+          down_sample_steps: ${task.sparse_obs_low_dim_down_sample_steps}
+        robot1_abs_eef_rot_axis_angle:
+          horizon: ${task.sparse_obs_low_dim_horizon}
+          down_sample_steps: ${task.sparse_obs_low_dim_down_sample_steps}
+        robot1_fingertip_width:
+          horizon: ${task.sparse_obs_low_dim_horizon}
+          down_sample_steps: ${task.sparse_obs_low_dim_down_sample_steps}
+
+    action:
+      sparse:
+        horizon: ${task.sparse_action_horizon}
+        down_sample_steps: ${task.sparse_action_down_sample_steps}
+
+
+# =========================
+# Task / dataset info
+# =========================
+task_name: &task_name cable_mounting
+dataset_path: ${oc.env:PYRITE_DATASET_FOLDERS}/cable_mounting_processed
+
+env_runner:
+  _target_: diffusion_policy.env_runner.real_pusht_image_runner.RealPushTImageRunner
+
+dataset:
+  # 强烈建议你新建/修改一个 dataset 类来支持 action_dim=30 非对称解码 & tactile
+  # 例如你可以从 VirtualTargetDataset 复制一份改成 CableMountingDataset
+  _target_: diffusion_policy.dataset.cable_mounting_dataset.CableMountingDataset
+
+  shape_meta: *shape_meta
+  dataset_path: ${task.dataset_path}
+
+  # 与你现有 repo 默认一致
+  sparse_query_frequency_down_sample_steps: 1
+  action_padding: False
+  temporally_independent_normalization: False
+  seed: 42
+  val_ratio: 0.05
+
+  # wrench 只有右手，因此 normalize 只对 robot0_eef_wrench 生效
+  normalize_wrench: True
