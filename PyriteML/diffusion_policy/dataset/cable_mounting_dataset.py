@@ -93,10 +93,18 @@ def raw_to_obs_cable_mounting(
         ftw_raw_key = f"fingertip_width_{rid}"
         ftw_obs_key = f"robot{rid}_fingertip_width"
         if ftw_raw_key in raw_data and ftw_obs_key in shape_meta.get("obs", {}):
-            episode_data["obs"][ftw_obs_key] = raw_data[ftw_raw_key][:]
+            ftw = raw_data[ftw_raw_key][:]
+            # ✅ 保证是 (T, 1)
+            if ftw.ndim == 1:
+                ftw = ftw.reshape(-1, 1)
+            else:
+                ftw = ftw.reshape(ftw.shape[0], 1)
+            episode_data["obs"][ftw_obs_key] = ftw.astype(np.float32)
         else:
-            raise KeyError(f"Missing {ftw_raw_key} in raw or {ftw_obs_key} not declared in shape_meta.obs")
-
+            raise KeyError(
+                f"Missing {ftw_raw_key} in raw or {ftw_obs_key} not declared in shape_meta.obs"
+            )
+        
         if "tactile_time_stamps" in raw_data and "tactile_time_stamps" in shape_meta.get("raw", {}):
             episode_data["obs"]["tactile_time_stamps"] = raw_data["tactile_time_stamps"][:]
         # timestamps (optional; only copy if exist in raw and declared in shape_meta.raw)
@@ -151,12 +159,18 @@ def raw_to_action30_cable_mounting(
     assert episode_data["action"].shape[1] == 30
 
     # timestamps
-    ts_key = f"robot_time_stamps_{right_id}"
-    if ts_key in raw_data:
-        episode_data["action_time_stamps"] = raw_data[ts_key][:L]
+    # ts_key = f"robot_time_stamps_{right_id}"
+    # if ts_key in raw_data:
+    #     episode_data["action_time_stamps"] = raw_data[ts_key][:L]
+    # else:
+    #     # fallback: if not present, create 0..L-1
+    #     episode_data["action_time_stamps"] = np.arange(L, dtype=np.float64)
+    # timestamps: align action to rgb0 time axis (since sampler queries on rgb0)
+    if "rgb_time_stamps_0" in raw_data:
+        episode_data["action_time_stamps"] = raw_data["rgb_time_stamps_0"][:L]
     else:
-        # fallback: if not present, create 0..L-1
-        episode_data["action_time_stamps"] = np.arange(L, dtype=np.float64)
+        ts_key = f"robot_time_stamps_{right_id}"
+        episode_data["action_time_stamps"] = raw_data[ts_key][:L]
 
 
 # =========================
@@ -253,6 +267,7 @@ class CableMountingDataset(BaseDataset):
         self.normalize_wrench = normalize_wrench
         self.sparse_query_frequency_down_sample_steps = sparse_query_frequency_down_sample_steps
         self.action_padding = action_padding
+        self.action_type = "sparse"
 
         # ---- load zarr store into memory ----
         print("[CableMountingDataset] loading data into store")
@@ -264,6 +279,18 @@ class CableMountingDataset(BaseDataset):
         # ---- build converted replay buffer ----
         print("[CableMountingDataset] raw -> obs/action conversion")
         replay_buffer = self.raw_episodes_conversion(replay_buffer_raw, shape_meta)
+
+
+        # debug logs to check conversion
+        print("[DEBUG] converted replay_buffer data keys:", list(replay_buffer["data"].keys())[:10])
+        print("[DEBUG] raw meta keys:", replay_buffer_raw["meta"].keys())
+        for k in replay_buffer_raw["meta"].keys():
+            try:
+                v = replay_buffer_raw["meta"][k]
+                if hasattr(v, "shape"):
+                    print("[DEBUG] meta", k, "shape", v.shape, "dtype", getattr(v, "dtype", None))
+            except Exception as e:
+                print("[DEBUG] meta", k, "read error:", e)
 
         # ---- train/val mask ----
         val_mask = get_val_mask(

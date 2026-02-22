@@ -106,6 +106,11 @@ class SequenceSampler:
                 end_time = min(low_dim_end_time, rgb_end_time)
                 start_time = max(low_dim_start_time, rgb_start_time)
 
+                if "tactile_time_stamps" in replay_buffer["data"][episode]["obs"]:
+                    tts = replay_buffer["data"][episode]["obs"]["tactile_time_stamps"]
+                    end_time = min(end_time, tts[-1])
+                    start_time = max(start_time, tts[0])
+
                 last_rgb_idx = 1e9
                 first_rgb_idx = -1
                 for id in id_list:
@@ -128,27 +133,48 @@ class SequenceSampler:
         #   epi_id: which episode the index i belongs to.
         #   epi_len: length of the episode.
         #   id: the index within the episode.
-        epi_id = []
+
+        # epi_id = []
+        # epi_len = []
+        # ids = []
+        # episode_count = -1
+        # for key in episode_keys:
+        #     episode_count += 1
+        #     episode_index = int(key.split("_")[-1])
+        #     array_length = episodes_length_for_query[episode_count]
+        #     if episode_mask is not None and not episode_mask[episode_count]:
+        #         # skip episode
+        #         continue
+        #     epi_id.extend([episode_index] * array_length)
+        #     epi_len.extend([episodes_length[episode_count]] * array_length)
+        #     ids.extend(episodes_start[episode_count] + np.arange(array_length))
+
+        # 原来是 epi_id / episode_index = int(key.split("_")[-1])
+        epi_key = []
         epi_len = []
         ids = []
         episode_count = -1
         for key in episode_keys:
             episode_count += 1
-            episode_index = int(key.split("_")[-1])
-            array_length = episodes_length_for_query[episode_count]
+            array_length = int(episodes_length_for_query[episode_count])
             if episode_mask is not None and not episode_mask[episode_count]:
-                # skip episode
                 continue
-            epi_id.extend([episode_index] * array_length)
+
+            # ✅ 保存真实 episode key
+            epi_key.extend([key] * array_length)
             epi_len.extend([episodes_length[episode_count]] * array_length)
             ids.extend(episodes_start[episode_count] + np.arange(array_length))
 
         # Step three: Down sample the query indices to make the dataset smaller
-        epi_id = epi_id[::sparse_query_frequency_down_sample_steps]
+        # epi_id = epi_id[::sparse_query_frequency_down_sample_steps]
+        # epi_len = epi_len[::sparse_query_frequency_down_sample_steps]
+        # ids = ids[::sparse_query_frequency_down_sample_steps]
+
+        # indices = list(zip(epi_id, epi_len, ids))
+        epi_key = epi_key[::sparse_query_frequency_down_sample_steps]
         epi_len = epi_len[::sparse_query_frequency_down_sample_steps]
         ids = ids[::sparse_query_frequency_down_sample_steps]
-
-        indices = list(zip(epi_id, epi_len, ids))
+        indices = list(zip(epi_key, epi_len, ids))
 
         self.shape_meta = shape_meta
         self.replay_buffer = replay_buffer
@@ -168,8 +194,11 @@ class SequenceSampler:
 
     def sample_sequence(self, idx):
         """Sample a sequence of observations and actions at idx."""
-        epi_id, epi_len_rgb, rgb_id = self.indices[idx]
-        episode = f"episode_{epi_id}"
+        # epi_id, epi_len_rgb, rgb_id = self.indices[idx]
+        # episode = f"episode_{epi_id}"
+        # data_episode = self.replay_buffer["data"][episode]
+
+        episode, epi_len_rgb, rgb_id = self.indices[idx]
         data_episode = self.replay_buffer["data"][episode]
 
         # indices are counted for the rgb0 obs data.
@@ -180,86 +209,170 @@ class SequenceSampler:
             input_arr = data_episode["obs"][key]
             this_horizon = attr["horizon"]
             this_downsample_steps = attr["down_sample_steps"]
-            type = self.shape_meta["obs"][key]["type"]
 
-            if "rgb" in key:
-                id = int(key.split("_")[-1])
+            # type = self.shape_meta["obs"][key]["type"]
+
+            # if "rgb" in key:
+            #     id = int(key.split("_")[-1])
+            # else:
+            #     id = int(key[5])  # robot0_xxxx
+
+            # # find the query id for the query time
+            # if "rgb" in key:
+            #     query_id = np.searchsorted(
+            #         data_episode["obs"][f"rgb_time_stamps_{id}"], query_time
+            #     )
+            #     found_time = data_episode["obs"][f"rgb_time_stamps_{id}"][query_id]
+
+            #     if abs(found_time - query_time) > 50.0:
+            #         print("processing key: ", key)
+            #         print("query_time: ", query_time)
+            #         print(
+            #             "total time: ",
+            #             data_episode["obs"][f"rgb_time_stamps_{id}"][-1],
+            #         )
+            #         print("query_id: ", query_id)
+            #         print(
+            #             "total id: ",
+            #             len(data_episode["obs"][f"rgb_time_stamps_{id}"]),
+            #         )
+            #         raise ValueError(
+            #             f"[sampler] {episode} Warning: closest rgb data point at {found_time} is far from the query_time {query_time}"
+            #         )
+            # elif "wrench" in key:
+            #     query_id = np.searchsorted(
+            #         data_episode["obs"][f"wrench_time_stamps_{id}"], query_time
+            #     )
+            #     found_time = data_episode["obs"][f"wrench_time_stamps_{id}"][query_id]
+            #     if abs(found_time - query_time) > 10.0:
+            #         print("query_time: ", query_time)
+            #         print(
+            #             "total time: ",
+            #             data_episode["obs"][f"wrench_time_stamps_{id}"][-1],
+            #         )
+            #         print("query_id: ", query_id)
+            #         print(
+            #             "total id: ",
+            #             len(data_episode["obs"][f"wrench_time_stamps_{id}"]),
+            #         )
+            #         raise ValueError(
+            #             f"[sampler] {episode} Warning: closest wrench data point at {found_time} is far from the query_time {query_time}"
+            #         )
+            # else:
+            #     # eef_pos or eef_rot_axis_angle
+            #     query_id = np.searchsorted(
+            #         data_episode["obs"][f"robot_time_stamps_{id}"], query_time
+            #     )
+            #     found_time = data_episode["obs"][f"robot_time_stamps_{id}"][query_id]
+            #     if abs(found_time - query_time) > 10.0:
+            #         print("processing key: ", key)
+            #         raise ValueError(
+            #             f"[sampler] {episode} Warning: closest robot data point at {found_time} is far from query_time {query_time}"
+            #         )
+            type_ = self.shape_meta["obs"][key]["type"]
+
+            # ---------- helper: pick timestamp array for this key ----------
+            def _get_time_array_for_key(k: str, typ: str):
+                if typ == "rgb":
+                    # rgb_0 / rgb_1
+                    if k.startswith("rgb_"):
+                        cam_id = int(k.split("_")[-1])
+                        return data_episode["obs"][f"rgb_time_stamps_{cam_id}"]
+                    # tactile
+                    if k == "tactile":
+                        return data_episode["obs"]["tactile_time_stamps"]
+                    raise KeyError(f"[sampler] Unknown rgb key={k}, please add its timestamp mapping.")
+                elif "wrench" in k:
+                    rid = int(k[5])  # robot0_...
+                    return data_episode["obs"][f"wrench_time_stamps_{rid}"]
+                else:
+                    rid = int(k[5])  # robot0_...
+                    return data_episode["obs"][f"robot_time_stamps_{rid}"]
+
+            time_arr = _get_time_array_for_key(key, type_)
+
+            # ---------- find query_id ----------
+            query_id = np.searchsorted(time_arr, query_time, side="left")
+            q = np.searchsorted(time_arr, query_time, side="left")
+            if q <= 0:
+                query_id = 0
+            elif q >= len(time_arr):
+                query_id = len(time_arr) - 1
             else:
-                id = int(key[5])  # robot0_xxxx
+                # choose nearest of q and q-1
+                prev_t = time_arr[q - 1]
+                next_t = time_arr[q]
+                query_id = (q - 1) if abs(prev_t - query_time) <= abs(next_t - query_time) else q
+            found_time = time_arr[query_id]
 
-            # find the query id for the query time
-            if "rgb" in key:
-                query_id = np.searchsorted(
-                    data_episode["obs"][f"rgb_time_stamps_{id}"], query_time
-                )
-                found_time = data_episode["obs"][f"rgb_time_stamps_{id}"][query_id]
+            # # clamp to valid range (important when query_time is near the end)
+            # if query_id >= len(time_arr):
+            #     query_id = len(time_arr) - 1
+            # found_time = time_arr[query_id]
 
-                if abs(found_time - query_time) > 50.0:
-                    print("processing key: ", key)
-                    print("query_time: ", query_time)
-                    print(
-                        "total time: ",
-                        data_episode["obs"][f"rgb_time_stamps_{id}"][-1],
-                    )
-                    print("query_id: ", query_id)
-                    print(
-                        "total id: ",
-                        len(data_episode["obs"][f"rgb_time_stamps_{id}"]),
-                    )
-                    raise ValueError(
-                        f"[sampler] {episode} Warning: closest rgb data point at {found_time} is far from the query_time {query_time}"
-                    )
+            # ---------- sanity check thresholds ----------
+            if type_ == "rgb":
+                tol = 70.0
             elif "wrench" in key:
-                query_id = np.searchsorted(
-                    data_episode["obs"][f"wrench_time_stamps_{id}"], query_time
-                )
-                found_time = data_episode["obs"][f"wrench_time_stamps_{id}"][query_id]
-                if abs(found_time - query_time) > 10.0:
-                    print("query_time: ", query_time)
-                    print(
-                        "total time: ",
-                        data_episode["obs"][f"wrench_time_stamps_{id}"][-1],
-                    )
-                    print("query_id: ", query_id)
-                    print(
-                        "total id: ",
-                        len(data_episode["obs"][f"wrench_time_stamps_{id}"]),
-                    )
-                    raise ValueError(
-                        f"[sampler] {episode} Warning: closest wrench data point at {found_time} is far from the query_time {query_time}"
-                    )
+                tol = 70.0
             else:
-                # eef_pos or eef_rot_axis_angle
-                query_id = np.searchsorted(
-                    data_episode["obs"][f"robot_time_stamps_{id}"], query_time
-                )
-                found_time = data_episode["obs"][f"robot_time_stamps_{id}"][query_id]
-                if abs(found_time - query_time) > 10.0:
-                    print("processing key: ", key)
-                    raise ValueError(
-                        f"[sampler] {episode} Warning: closest robot data point at {found_time} is far from query_time {query_time}"
-                    )
+                tol = 70.0
 
-            # how many obs frames before the query time are valid
+            if abs(found_time - query_time) > tol:
+                raise ValueError(
+                    f"[sampler] {episode} Warning: closest data point for key={key} at {found_time} "
+                    f"is far from query_time {query_time} (tol={tol})"
+                )
+
+            # ---------- sample obs window ----------
+            input_arr = data_episode["obs"][key]
+            this_horizon = attr["horizon"]
+            this_downsample_steps = attr["down_sample_steps"]
+
             num_valid = min(this_horizon, query_id // this_downsample_steps + 1)
             slice_start = query_id - (num_valid - 1) * this_downsample_steps
             assert slice_start >= 0
 
-            # sample every this_downsample_steps frames from slice_start to id+1
-            if type == "rgb":
+            if type_ == "rgb":
                 if self.ignore_rgb_is_applied:
                     continue
                 output = input_arr[slice_start : query_id + 1 : this_downsample_steps]
-            elif type == "low_dim":
-                output = input_arr[
-                    slice_start : query_id + 1 : this_downsample_steps
-                ].astype(np.float32)
+            elif type_ == "low_dim":
+                output = input_arr[slice_start : query_id + 1 : this_downsample_steps].astype(np.float32)
+            else:
+                # timestamp type generally shouldn't appear in sample.obs.sparse,
+                # but if it does, treat as low_dim
+                output = input_arr[slice_start : query_id + 1 : this_downsample_steps].astype(np.float32)
+
             assert output.shape[0] == num_valid
-            # solve padding
+
+            # padding (front-pad with first frame)
             if output.shape[0] < this_horizon:
                 padding = np.repeat(output[:1], this_horizon - output.shape[0], axis=0)
                 output = np.concatenate([padding, output], axis=0)
+
             sparse_obs_unprocessed[key] = output
+
+            # how many obs frames before the query time are valid
+            # num_valid = min(this_horizon, query_id // this_downsample_steps + 1)
+            # slice_start = query_id - (num_valid - 1) * this_downsample_steps
+            # assert slice_start >= 0
+
+            # # sample every this_downsample_steps frames from slice_start to id+1
+            # if type == "rgb":
+            #     if self.ignore_rgb_is_applied:
+            #         continue
+            #     output = input_arr[slice_start : query_id + 1 : this_downsample_steps]
+            # elif type == "low_dim":
+            #     output = input_arr[
+            #         slice_start : query_id + 1 : this_downsample_steps
+            #     ].astype(np.float32)
+            # assert output.shape[0] == num_valid
+            # # solve padding
+            # if output.shape[0] < this_horizon:
+            #     padding = np.repeat(output[:1], this_horizon - output.shape[0], axis=0)
+            #     output = np.concatenate([padding, output], axis=0)
+            # sparse_obs_unprocessed[key] = output
 
         # sparse action
         action_id = np.searchsorted(data_episode["action_time_stamps"], query_time)

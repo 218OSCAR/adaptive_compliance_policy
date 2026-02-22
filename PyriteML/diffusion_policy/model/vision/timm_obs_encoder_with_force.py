@@ -373,14 +373,42 @@ class TimmObsEncoderWithForce(ModuleAttrMixin):
             features.append(feature.reshape(B, -1))
             modality_features.append(feature.reshape(B, T, -1))
 
+        # for key in self.wrench_keys:
+        #     data = obs_dict[key]
+        #     B, T = data.shape[:2]
+        #     assert B == batch_size
+        #     assert data.shape[2:] == self.key_shape_map[key]
+        #     data = data.permute(0, 2, 1)
+        #     feature = self.key_model_map[key](data.float())[:, :, 0]
+        #     assert len(feature.shape) == 2 and feature.shape[0] == B
+        #     features.append(feature.reshape(B, -1))
+        #     modality_features.append(feature.unsqueeze(1))
         for key in self.wrench_keys:
             data = obs_dict[key]
             B, T = data.shape[:2]
             assert B == batch_size
             assert data.shape[2:] == self.key_shape_map[key]
-            data = data.permute(0, 2, 1)
-            feature = self.key_model_map[key](data.float())[:, :, 0]
-            assert len(feature.shape) == 2 and feature.shape[0] == B
+            data = data.permute(0, 2, 1)  # (B, 6, T)
+
+            out = self.key_model_map[key](data.float())
+
+            # out can be:
+            # - (B, D, L) from Conv1d-style encoder
+            # - (B, D)    from already-pooled encoder
+            if out.ndim == 3:
+                if out.shape[-1] == 0:
+                    raise RuntimeError(
+                        f"ForceEncoder produced empty temporal dim for key={key}. "
+                        f"Input T={T}, output shape={tuple(out.shape)}. "
+                        "Fix ForceEncoder strides/padding/pooling."
+                    )
+                feature = out.mean(dim=-1)  # (B, D)
+            elif out.ndim == 2:
+                feature = out  # (B, D)
+            else:
+                raise RuntimeError(f"Unexpected ForceEncoder output shape: {tuple(out.shape)}")
+
+            assert feature.shape[0] == B
             features.append(feature.reshape(B, -1))
             modality_features.append(feature.unsqueeze(1))
 
