@@ -404,7 +404,8 @@ class TimmObsEncoderWithForce(ModuleAttrMixin):
             in_embeds = torch.cat(modality_features, dim=1)  # [batch, n_features, D]
             if self.position_encoding == "learnable":
                 if self.position_embedding.device != in_embeds.device:
-                    self.position_embedding = self.position_embedding.to(feature.device)
+                    # self.position_embedding = self.position_embedding.to(feature.device)
+                    self.position_embedding = self.position_embedding.to(in_embeds.device)
                 in_embeds = in_embeds + self.position_embedding
             out_embeds = self.transformer_encoder(in_embeds)  # [batch, n_features, D]
             result = torch.concat(

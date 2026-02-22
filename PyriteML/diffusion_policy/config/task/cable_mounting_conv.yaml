@@ -253,7 +253,13 @@ shape_meta: &shape_meta
 # Task / dataset info
 # =========================
 task_name: &task_name cable_mounting
-dataset_path: ${oc.env:PYRITE_DATASET_FOLDERS}/cable_mounting_processed
+dataset_path: ${oc.env:PYRITE_DATASET_FOLDERS}
+
+# 因为原版 diffusion_policy/ACP 的训练脚本很多会在训练中做：
+# rollout / online eval
+# 用真实/模拟环境跑一段看 success rate
+# 这些就需要 env_runner。
+# 你的 repo 目前把这块关掉了，所以 folder 不存在也合理
 
 env_runner:
   _target_: diffusion_policy.env_runner.real_pusht_image_runner.RealPushTImageRunner

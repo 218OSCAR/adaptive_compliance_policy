@@ -82,13 +82,23 @@ def raw_to_obs_cable_mounting(
         # else: do nothing (left hand has no wrench)
 
         # fingertip width (required by you)
-        ftw_key = f"fingertip_width_{rid}"
-        if ftw_key in raw_data:
-            episode_data["obs"][ftw_key] = raw_data[ftw_key][:]
-        else:
-            # If missing, still fail loudly: you said you want both hands widths.
-            raise KeyError(f"Missing {ftw_key} in raw data.")
 
+        # ftw_key = f"fingertip_width_{rid}"
+        # if ftw_key in raw_data:
+        #     episode_data["obs"][ftw_key] = raw_data[ftw_key][:]
+        # else:
+        #     # If missing, still fail loudly: you said you want both hands widths.
+        #     raise KeyError(f"Missing {ftw_key} in raw data.")
+
+        ftw_raw_key = f"fingertip_width_{rid}"
+        ftw_obs_key = f"robot{rid}_fingertip_width"
+        if ftw_raw_key in raw_data and ftw_obs_key in shape_meta.get("obs", {}):
+            episode_data["obs"][ftw_obs_key] = raw_data[ftw_raw_key][:]
+        else:
+            raise KeyError(f"Missing {ftw_raw_key} in raw or {ftw_obs_key} not declared in shape_meta.obs")
+
+        if "tactile_time_stamps" in raw_data and "tactile_time_stamps" in shape_meta.get("raw", {}):
+            episode_data["obs"]["tactile_time_stamps"] = raw_data["tactile_time_stamps"][:]
         # timestamps (optional; only copy if exist in raw and declared in shape_meta.raw)
         for ts_key in [f"rgb_time_stamps_{rid}", f"robot_time_stamps_{rid}", f"wrench_time_stamps_{rid}"]:
             if ts_key in raw_data and ts_key in shape_meta.get("raw", {}):

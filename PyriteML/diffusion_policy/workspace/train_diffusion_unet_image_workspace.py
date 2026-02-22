@@ -328,44 +328,163 @@ class TrainDiffusionUnetImageWorkspace(BaseWorkspace):
                     policy = self.ema_model
                 policy.eval()
 
+                # def log_action_mse(step_log, category, pred_action, gt_action):
+                #     pred_naction = {
+                #         "sparse": sparse_normalizer["action"].normalize(
+                #             pred_action["sparse"]
+                #         ),
+                #     }
+                #     gt_naction = {
+                #         "sparse": sparse_normalizer["action"].normalize(
+                #             gt_action["sparse"]
+                #         ),
+                #     }
+                #     B, T, _ = pred_naction["sparse"].shape
+                #     pred_naction_sparse = pred_naction["sparse"].view(
+                #         B, T, -1, action_dimension
+                #     )
+                #     gt_naction_sparse = gt_naction["sparse"].view(
+                #         B, T, -1, action_dimension
+                #     )
+                #     step_log[f"{category}_sparse_naction_mse_error"] = (
+                #         torch.nn.functional.mse_loss(
+                #             pred_naction_sparse, gt_naction_sparse
+                #         )
+                #     )
+                #     step_log[f"{category}_sparse_cmd_naction_mse_error"] = (
+                #         torch.nn.functional.mse_loss(
+                #             pred_naction_sparse[..., :9], gt_naction_sparse[..., :9]
+                #         )
+                #     )
+                #     step_log[f"{category}_sparse_vt_naction_mse_error"] = (
+                #         torch.nn.functional.mse_loss(
+                #             pred_naction_sparse[..., 9:18], gt_naction_sparse[..., 9:18]
+                #         )
+                #     )
+                #     step_log[f"{category}_sparse_stiffness_mse_error"] = (
+                #         torch.nn.functional.mse_loss(
+                #             pred_naction_sparse[..., 18], gt_naction_sparse[..., 18]
+                #         )
+                #     )
+                
                 def log_action_mse(step_log, category, pred_action, gt_action):
+                # normalize (same behavior as original)
                     pred_naction = {
-                        "sparse": sparse_normalizer["action"].normalize(
-                            pred_action["sparse"]
-                        ),
+                        "sparse": sparse_normalizer["action"].normalize(pred_action["sparse"]),
                     }
                     gt_naction = {
-                        "sparse": sparse_normalizer["action"].normalize(
-                            gt_action["sparse"]
-                        ),
+                        "sparse": sparse_normalizer["action"].normalize(gt_action["sparse"]),
                     }
-                    B, T, _ = pred_naction["sparse"].shape
-                    pred_naction_sparse = pred_naction["sparse"].view(
-                        B, T, -1, action_dimension
-                    )
-                    gt_naction_sparse = gt_naction["sparse"].view(
-                        B, T, -1, action_dimension
-                    )
-                    step_log[f"{category}_sparse_naction_mse_error"] = (
-                        torch.nn.functional.mse_loss(
-                            pred_naction_sparse, gt_naction_sparse
+
+                    # shape: (B, T, D)
+                    pred_naction_sparse = pred_naction["sparse"]
+                    gt_naction_sparse = gt_naction["sparse"]
+
+                    # === REPLACE the two .view(...) lines with a no-op compatibility block ===
+                    # Some older code tried to view into (B,T,?,D). That is unnecessary and breaks
+                    # custom layouts. We keep compatibility by simply ensuring tensors are 3D.
+                    if pred_naction_sparse.dim() != 3 or gt_naction_sparse.dim() != 3:
+                        raise RuntimeError(
+                            f"Expect (B,T,D) for action. Got pred {tuple(pred_naction_sparse.shape)} "
+                            f"gt {tuple(gt_naction_sparse.shape)}"
                         )
+
+                    D = pred_naction_sparse.shape[-1]
+                    if D != gt_naction_sparse.shape[-1]:
+                        raise RuntimeError(f"pred D={D} != gt D={gt_naction_sparse.shape[-1]}")
+
+                    # overall mse
+                    step_log[f"{category}_sparse_naction_mse_error"] = torch.nn.functional.mse_loss(
+                        pred_naction_sparse, gt_naction_sparse
                     )
-                    step_log[f"{category}_sparse_cmd_naction_mse_error"] = (
-                        torch.nn.functional.mse_loss(
-                            pred_naction_sparse[..., :9], gt_naction_sparse[..., :9]
+
+                    # === Layout-specific logs ===
+                    # 19: single arm (cmd9 + vt9 + stiff1)
+                    if D == 19:
+                        step_log[f"{category}_sparse_cmd_naction_mse_error"] = torch.nn.functional.mse_loss(
+                            pred_naction_sparse[..., 0:9], gt_naction_sparse[..., 0:9]
                         )
-                    )
-                    step_log[f"{category}_sparse_vt_naction_mse_error"] = (
-                        torch.nn.functional.mse_loss(
+                        step_log[f"{category}_sparse_vt_naction_mse_error"] = torch.nn.functional.mse_loss(
                             pred_naction_sparse[..., 9:18], gt_naction_sparse[..., 9:18]
                         )
-                    )
-                    step_log[f"{category}_sparse_stiffness_mse_error"] = (
-                        torch.nn.functional.mse_loss(
-                            pred_naction_sparse[..., 18], gt_naction_sparse[..., 18]
+                        step_log[f"{category}_sparse_stiffness_mse_error"] = torch.nn.functional.mse_loss(
+                            pred_naction_sparse[..., 18:19], gt_naction_sparse[..., 18:19]
                         )
-                    )
+
+                    # 38: bimanual ACP default (each arm: cmd9 + vt9 + stiff1) => 19*2
+                    elif D == 38:
+                        # right arm (0:19)
+                        step_log[f"{category}_right_cmd_naction_mse_error"] = torch.nn.functional.mse_loss(
+                            pred_naction_sparse[..., 0:9], gt_naction_sparse[..., 0:9]
+                        )
+                        step_log[f"{category}_right_vt_naction_mse_error"] = torch.nn.functional.mse_loss(
+                            pred_naction_sparse[..., 9:18], gt_naction_sparse[..., 9:18]
+                        )
+                        step_log[f"{category}_right_stiffness_mse_error"] = torch.nn.functional.mse_loss(
+                            pred_naction_sparse[..., 18:19], gt_naction_sparse[..., 18:19]
+                        )
+                        # left arm (19:38)
+                        step_log[f"{category}_left_cmd_naction_mse_error"] = torch.nn.functional.mse_loss(
+                            pred_naction_sparse[..., 19:28], gt_naction_sparse[..., 19:28]
+                        )
+                        step_log[f"{category}_left_vt_naction_mse_error"] = torch.nn.functional.mse_loss(
+                            pred_naction_sparse[..., 28:37], gt_naction_sparse[..., 28:37]
+                        )
+                        step_log[f"{category}_left_stiffness_mse_error"] = torch.nn.functional.mse_loss(
+                            pred_naction_sparse[..., 37:38], gt_naction_sparse[..., 37:38]
+                        )
+
+                        # keep legacy names too (optional but helpful for continuity)
+                        step_log[f"{category}_sparse_cmd_naction_mse_error"] = torch.nn.functional.mse_loss(
+                            pred_naction_sparse[..., 0:9], gt_naction_sparse[..., 0:9]
+                        )
+                        step_log[f"{category}_sparse_vt_naction_mse_error"] = torch.nn.functional.mse_loss(
+                            pred_naction_sparse[..., 9:18], gt_naction_sparse[..., 9:18]
+                        )
+                        step_log[f"{category}_sparse_stiffness_mse_error"] = torch.nn.functional.mse_loss(
+                            pred_naction_sparse[..., 18:19], gt_naction_sparse[..., 18:19]
+                        )
+
+                    # 30: your cable_mounting asymmetric action
+                    # right: cmd(0:9), vt(9:18), stiff(18:19), grip(19:20) => 20 dims
+                    # left:  cmd(20:29), grip(29:30) => 10 dims
+                    elif D == 30:
+                        # right
+                        step_log[f"{category}_right_cmd_naction_mse_error"] = torch.nn.functional.mse_loss(
+                            pred_naction_sparse[..., 0:9], gt_naction_sparse[..., 0:9]
+                        )
+                        step_log[f"{category}_right_vt_naction_mse_error"] = torch.nn.functional.mse_loss(
+                            pred_naction_sparse[..., 9:18], gt_naction_sparse[..., 9:18]
+                        )
+                        step_log[f"{category}_right_stiffness_mse_error"] = torch.nn.functional.mse_loss(
+                            pred_naction_sparse[..., 18:19], gt_naction_sparse[..., 18:19]
+                        )
+                        step_log[f"{category}_right_grip_naction_mse_error"] = torch.nn.functional.mse_loss(
+                            pred_naction_sparse[..., 19:20], gt_naction_sparse[..., 19:20]
+                        )
+
+                        # left
+                        step_log[f"{category}_left_cmd_naction_mse_error"] = torch.nn.functional.mse_loss(
+                            pred_naction_sparse[..., 20:29], gt_naction_sparse[..., 20:29]
+                        )
+                        step_log[f"{category}_left_grip_naction_mse_error"] = torch.nn.functional.mse_loss(
+                            pred_naction_sparse[..., 29:30], gt_naction_sparse[..., 29:30]
+                        )
+
+                        # keep the legacy keys as best-effort (right-hand aligned)
+                        step_log[f"{category}_sparse_cmd_naction_mse_error"] = step_log[
+                            f"{category}_right_cmd_naction_mse_error"
+                        ]
+                        step_log[f"{category}_sparse_vt_naction_mse_error"] = step_log[
+                            f"{category}_right_vt_naction_mse_error"
+                        ]
+                        step_log[f"{category}_sparse_stiffness_mse_error"] = step_log[
+                            f"{category}_right_stiffness_mse_error"
+                        ]
+
+                    else:
+                        # Unknown layout: only overall mse is logged, avoid crashing training
+                        step_log[f"{category}_action_dim"] = float(D)
 
                 # run diffusion sampling on a training batch
                 if (
