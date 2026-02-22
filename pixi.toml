@@ -1,0 +1,91 @@
+[workspace]
+authors = ["I am a bot"]
+channels = ["pytorch", "nvidia", "conda-forge"]
+name = "pyrite"
+platforms = ["linux-64"]
+version = "0.1.0"
+
+[tasks]
+preprocess = {cmd = "python $PIXI_PROJECT_ROOT/PyriteUtility/data_pipeline/real_data_processing_multimodal.py   --src_dir $PIXI_PROJECT_ROOT/data/real   --out_dir $PIXI_PROJECT_ROOT/data/real_processed --resize_h 224 --resize_w 224   --overwrite --save_mp4"}
+
+add_virtual_target = {cmd = "python $PIXI_PROJECT_ROOT/PyriteEnvSuites/scripts/postprocess_add_virtual_target_label_multimodal.py   --dataset_path $PIXI_PROJECT_ROOT/data/real_processed   --right_id 0   --wrench_filter_mode lpf   --fs_hz 15 --cutoff_hz 3 --order 3   --half_window_size 3"}
+
+show_preprocessed = {cmd = "python $PIXI_PROJECT_ROOT/PyriteEnvSuites/scripts/postprocess_add_virtual_target_label_multimodal.py   --dataset_path $PIXI_PROJECT_ROOT/data/real_processed   --right_id 0   --wrench_filter_mode lpf   --fs_hz 15 --cutoff_hz 3 --order 3   --half_window_size 3   --plot --plot_every_n 20"}
+
+
+[dependencies]
+python = ">=3.10"
+fmt = "*"
+timm = "*"
+diffusers = "*"
+spdlog = "*"
+accelerate = "*"
+pybind11 = "*"
+huggingface_hub = "*"
+ipykernel = "*"
+ipython = "*"
+
+[pypi-dependencies]
+torch = "*"
+torchvision = "*"
+torchaudio = "*"
+wandb = "*"
+v4l2py = "*"
+toppra = "*"
+atomic = "*"
+dill = "*"
+tqdm = "*"
+zarr = "<3.0.0"
+cvxpy = "*"
+pyyaml = "*"
+pandas = "*"
+opencv-python = "*"
+numcodecs = "*"
+spatialmath-python = "*"
+scikit-video = "*"
+scikit-fda = "*"
+omegaconf = "*"
+hydra-core = "*"
+imageio = { version = "*", extras = ["ffmpeg"] }
+plotly = "*"
+vit-pytorch = ">=1.7.12"
+imagecodecs = ">=2023.9.18"
+
+[feature.training.activation.env]
+PYRITE_RAW_DATASET_FOLDERS = "$PIXI_PROJECT_ROOT/data/real"
+PYRITE_DATASET_FOLDERS = "$PIXI_PROJECT_ROOT/data/real_processed"
+PYRITE_CHECKPOINT_FOLDERS="$PIXI_PROJECT_ROOT/training_outputs"
+HYDRA_FULL_ERROR = "1" 
+
+[feature.training.tasks.train_policy]
+cwd = "PyriteML"
+cmd = [
+    "accelerate", "launch", "train.py", "--config-name={{config}}.yaml"
+]
+args = [
+  { "arg" = "config", "default" = "train_multimodal_conv_workspace" }
+]
+
+# [feature.train.tasks.test]
+# cwd = "PyriteML"
+# cmd = [
+#     "ls",
+#     # "accelerate launch train.py --config-name={{config}}.yaml"
+#     ]
+
+
+[feature.deploy.activation.env]
+# TODO: Is this actually used??
+PYRITE_HARDWARE_CONFIG_FOLDERS="$PIXI_PROJECT_ROOT/git/RobotTestBench/applications/ur_test_bench/config"
+PYRITE_CONTROL_LOG_FOLDERS="$PIXI_PROJECT_ROOT/data/control_log"
+
+[feature.deploy.dependencies]
+boost = "*"
+llvm-openmp = "==14"
+threadpoolctl = "*"
+eigen = "==3.4.0"
+cmake = "*"
+
+[environments]
+deploy = ["deploy", "training", "default"]
+train = ["training"]
