@@ -1,4 +1,4 @@
 [submodule "PyriteML/multimodal_representation"]
 	path = PyriteML/multimodal_representation
-	url = git@github.com:yifan-hou/multimodal_representation.git
+	url = git@github.com:218OSCAR/multimodal_representation.git
 	branch = master
