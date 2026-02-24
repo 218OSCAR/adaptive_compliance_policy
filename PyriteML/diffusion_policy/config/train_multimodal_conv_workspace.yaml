@@ -38,7 +38,7 @@ policy:
       pretrained: True
       frozen: False
       global_pool: ''
-      feature_aggregation: 'attention_pool_2d'
+      feature_aggregation: null
       position_encoding: null
       downsample_ratio: 32
 
@@ -55,6 +55,17 @@ policy:
       share_rgb_model: False
       imagenet_norm: True
 
+    tactile_encoder_cfg:   # ✅ 新增：tactile 单独用 resnet
+      model_name: 'resnet18.a1_in1k'
+      pretrained: True
+      frozen: True          # 建议先冻住（速度快很多），跑通后再解冻
+      global_pool: ''       # 这里保持 ''，与你当前 resnet 分支逻辑一致（输出 feature map）
+      downsample_ratio: 32
+      feature_aggregation: 'avg'   # resnet 建议先用 avg（最快最稳）
+      use_group_norm: False
+      imagenet_norm: True
+      transforms: null      # tactile 一般不做 color jitter；要做也行
+      
     # 右手有 wrench 才有意义；左手没有 wrench 不会提供对应 key
     force_encoder_cfg:
       model_name: causalconv

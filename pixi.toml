@@ -56,6 +56,7 @@ PYRITE_RAW_DATASET_FOLDERS = "$PIXI_PROJECT_ROOT/data/real"
 PYRITE_DATASET_FOLDERS = "$PIXI_PROJECT_ROOT/data/real_processed"
 PYRITE_CHECKPOINT_FOLDERS="$PIXI_PROJECT_ROOT/training_outputs"
 HYDRA_FULL_ERROR = "1" 
+CUDA_VISIBLE_DEVICES = "0"
 
 [feature.training.tasks.train_policy]
 cwd = "PyriteML"

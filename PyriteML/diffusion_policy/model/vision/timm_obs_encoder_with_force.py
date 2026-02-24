@@ -72,6 +72,7 @@ class TimmObsEncoderWithForce(ModuleAttrMixin):
         reduce_pretrained_lr: bool,
         vision_encoder_cfg: dict,
         force_encoder_cfg: dict,
+        tactile_encoder_cfg: dict = None, 
         # replace BatchNorm with GroupNorm
         # use single rgb model for all rgb inputs
         # renormalize rgb input with imagenet normalization
@@ -90,6 +91,8 @@ class TimmObsEncoderWithForce(ModuleAttrMixin):
         key_model_map = nn.ModuleDict()
         key_transform_map = nn.ModuleDict()
         key_shape_map = dict()
+        key_model_name_map = dict()
+        key_agg_mode_map = dict()
 
         model_list = []
         feature_dim_list = []
@@ -190,13 +193,92 @@ class TimmObsEncoderWithForce(ModuleAttrMixin):
             if type == "rgb":
                 rgb_keys.append(key)
 
-                vision_encoder = (
-                    vision_encoder
-                    if vision_encoder_cfg.share_rgb_model
-                    else copy.deepcopy(vision_encoder)
-                )
-                key_model_map[key] = vision_encoder
-                key_transform_map[key] = vision_transform
+                # vision_encoder = (
+                #     vision_encoder
+                #     if vision_encoder_cfg.share_rgb_model
+                #     else copy.deepcopy(vision_encoder)
+                # )
+                # key_model_map[key] = vision_encoder
+                # key_transform_map[key] = vision_transform
+                # decide which cfg to use for this rgb-like key
+
+                this_vision_cfg = vision_encoder_cfg
+                if (key == "tactile") and (tactile_encoder_cfg is not None):
+                    this_vision_cfg = tactile_encoder_cfg
+
+                # build / select encoder
+                if this_vision_cfg is vision_encoder_cfg:
+                    # reuse original vision_encoder (ViT) logic
+                    enc = vision_encoder if vision_encoder_cfg.share_rgb_model else copy.deepcopy(vision_encoder)
+                else:
+                    # build tactile-specific encoder (e.g., ResNet)
+                    enc = timm.create_model(
+                        model_name=this_vision_cfg.model_name,
+                        pretrained=this_vision_cfg.pretrained,
+                        global_pool=this_vision_cfg.global_pool,
+                        num_classes=0,
+                    )
+
+                    if this_vision_cfg.frozen:
+                        assert this_vision_cfg.pretrained
+                        for p in enc.parameters():
+                            p.requires_grad = False
+
+                    # -------- ResNet feature map extraction --------
+                    if this_vision_cfg.model_name.startswith("resnet"):
+                        if this_vision_cfg.downsample_ratio == 32:
+                            modules = list(enc.children())[:-2]
+                            enc = torch.nn.Sequential(*modules)
+                            tactile_out_dim = 512
+                        elif this_vision_cfg.downsample_ratio == 16:
+                            modules = list(enc.children())[:-3]
+                            enc = torch.nn.Sequential(*modules)
+                            tactile_out_dim = 256
+                        else:
+                            raise NotImplementedError(
+                                f"Unsupported downsample_ratio: {this_vision_cfg.downsample_ratio}"
+                            )
+
+                        # ✅ 这里加 projection 到 768
+                        if tactile_out_dim != self.v_feature_dim:
+                            enc = nn.Sequential(
+                                enc,
+                                nn.AdaptiveAvgPool2d((1, 1)),
+                                nn.Flatten(),
+                                nn.Linear(tactile_out_dim, self.v_feature_dim),
+                            )
+
+                    elif this_vision_cfg.model_name.startswith("convnext"):
+                        if this_vision_cfg.downsample_ratio == 32:
+                            modules = list(enc.children())[:-2]
+                            enc = torch.nn.Sequential(*modules)
+                        else:
+                            raise NotImplementedError(f"Unsupported downsample_ratio: {this_vision_cfg.downsample_ratio}")
+
+                    # group norm replacement (only when not pretrained, keep your original behavior)
+                    if this_vision_cfg.use_group_norm and not this_vision_cfg.pretrained:
+                        enc = replace_submodules(
+                            root_module=enc,
+                            predicate=lambda x: isinstance(x, nn.BatchNorm2d),
+                            func=lambda x: nn.GroupNorm(
+                                num_groups=((x.num_features // 16) if (x.num_features % 16 == 0) else (x.num_features // 8)),
+                                num_channels=x.num_features,
+                            ),
+                        )
+
+                key_model_map[key] = enc
+
+                # transform: tactile 可以选择不用 color jitter
+                if (key == "tactile") and (tactile_encoder_cfg is not None) and (getattr(tactile_encoder_cfg, "transforms", None) is None):
+                    key_transform_map[key] = nn.Identity()
+                else:
+                    key_transform_map[key] = vision_transform
+
+                # record per-key aggregation behavior
+                key_model_name_map[key] = this_vision_cfg.model_name
+                key_agg_mode_map[key] = this_vision_cfg.feature_aggregation
+
+
             elif type == "low_dim":
                 if "wrench" in key:
                     print("key_model_map adding wrench key:", key)
@@ -227,6 +309,9 @@ class TimmObsEncoderWithForce(ModuleAttrMixin):
         self.fuse_mode = fuse_mode
         self.key_model_map = key_model_map
         self.key_transform_map = key_transform_map
+        self.key_model_name_map = key_model_name_map
+        self.key_agg_mode_map = key_agg_mode_map
+        self.tactile_encoder_cfg = tactile_encoder_cfg
         self.rgb_keys = rgb_keys
         self.low_dim_keys = low_dim_keys
         self.wrench_keys = wrench_keys
@@ -364,11 +449,22 @@ class TimmObsEncoderWithForce(ModuleAttrMixin):
             img = img.reshape(B * T, *img.shape[2:])
             img = self.key_transform_map[key](img)
             raw_feature = self.key_model_map[key](img)
-            feature = self.aggregate_feature(
-                model_name=self.vision_encoder_cfg.model_name,
-                agg_mode=self.vision_encoder_cfg.feature_aggregation,
-                feature=raw_feature,
-            )
+
+            # feature = self.aggregate_feature(
+            #     model_name=self.vision_encoder_cfg.model_name,
+            #     agg_mode=self.vision_encoder_cfg.feature_aggregation,
+            #     feature=raw_feature,
+            # )
+            # 如果已经是 (B*T, D)，直接用
+            if raw_feature.dim() == 2:
+                feature = raw_feature
+            else:
+                feature = self.aggregate_feature(
+                    model_name=self.key_model_name_map[key],
+                    agg_mode=self.key_agg_mode_map[key],
+                    feature=raw_feature,
+                )
+
             assert len(feature.shape) == 2 and feature.shape[0] == B * T
             features.append(feature.reshape(B, -1))
             modality_features.append(feature.reshape(B, T, -1))
