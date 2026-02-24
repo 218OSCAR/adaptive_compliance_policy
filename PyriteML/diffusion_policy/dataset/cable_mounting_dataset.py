@@ -53,9 +53,17 @@ def raw_to_obs_cable_mounting(
     episode_data["obs"] = {}
 
     # ---- keep rgb (including tactile) as compressed arrays ----
+    # for key, attr in shape_meta["raw"].items():
+    #     type_ = attr.get("type", "low_dim")
+    #     if type_ == "rgb":
+    #         episode_data["obs"][key] = raw_data[key]
+
+    obs_decl = shape_meta.get("obs", {})
     for key, attr in shape_meta["raw"].items():
-        type_ = attr.get("type", "low_dim")
-        if type_ == "rgb":
+        if attr.get("type", "low_dim") != "rgb":
+            continue
+        # ✅ 只拷贝“会进入模型 obs 的 rgb key”
+        if key in obs_decl:
             episode_data["obs"][key] = raw_data[key]
 
     # ---- low-dim per robot ----
@@ -111,6 +119,11 @@ def raw_to_obs_cable_mounting(
         for ts_key in [f"rgb_time_stamps_{rid}", f"robot_time_stamps_{rid}", f"wrench_time_stamps_{rid}"]:
             if ts_key in raw_data and ts_key in shape_meta.get("raw", {}):
                 episode_data["obs"][ts_key] = raw_data[ts_key][:]
+        
+        # ---- copy timestamps that are declared in shape_meta.obs (optional) ----
+        for key, attr in shape_meta.get("obs", {}).items():
+            if attr.get("type", None) == "timestamp" and key in raw_data:
+                episode_data["obs"][key] = raw_data[key][:]
 
 
 # =========================

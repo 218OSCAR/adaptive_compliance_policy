@@ -1,0 +1,18 @@
+# task/kinect/on.yaml
+task:
+  shape_meta:
+    obs:
+      rgb_2:
+        shape: [3, 224, 224]
+        type: rgb
+
+      rgb_time_stamps_2:
+        shape: [1]
+        type: timestamp
+
+    sample:
+      obs:
+        sparse:
+          rgb_2:
+            horizon: ${task.sparse_obs_rgb_horizon}
+            down_sample_steps: ${task.sparse_obs_rgb_down_sample_steps}
