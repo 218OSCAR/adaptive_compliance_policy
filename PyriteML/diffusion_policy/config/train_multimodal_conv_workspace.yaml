@@ -112,7 +112,8 @@ val_dataloader:
 
 optimizer:
   _target_: torch.optim.AdamW
-  lr: 3.0e-4
+  # lr: 3.0e-4
+  lr: 1.0e-3
   betas: [0.95, 0.999]
   eps: 1.0e-8
   weight_decay: 1.0e-6
@@ -133,8 +134,10 @@ training:
   freeze_encoder: False
 
   rollout_every: 10
-  checkpoint_every: 10
-  val_every: 5
+  # checkpoint_every: 10
+  checkpoint_every: 5
+  # val_every: 5
+  val_every: 3
   sample_every: 5
 
   max_train_steps: null
@@ -154,7 +157,8 @@ checkpoint:
   topk:
     monitor_key: train_loss
     mode: min
-    k: 20
+    # k: 20
+    k: 10
     format_str: 'epoch={epoch:04d}-train_loss={train_loss:.3f}.ckpt'
   save_last_ckpt: True
   save_last_snapshot: False

@@ -66,6 +66,7 @@ cmd = [
 args = [
   { "arg" = "config", "default" = "train_multimodal_conv_workspace" }
 ]
+depends-on = ["add_virtual_target"]
 
 # [feature.train.tasks.test]
 # cwd = "PyriteML"
