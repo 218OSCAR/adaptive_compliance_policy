@@ -59,11 +59,11 @@ def raw_to_obs_cable_mounting(
     #         episode_data["obs"][key] = raw_data[key]
 
     obs_decl = shape_meta.get("obs", {})
-    for key, attr in shape_meta["raw"].items():
-        if attr.get("type", "low_dim") != "rgb":
-            continue
-        # ✅ 只拷贝“会进入模型 obs 的 rgb key”
-        if key in obs_decl:
+    # ---- keep rgb (including tactile/kinect) as compressed arrays ----
+    for key, attr in shape_meta["obs"].items():
+        if attr.get("type", "low_dim") == "rgb":
+            if key not in raw_data:
+                raise KeyError(f"Missing {key} in raw data (declared as rgb in shape_meta.obs)")
             episode_data["obs"][key] = raw_data[key]
 
     # ---- low-dim per robot ----

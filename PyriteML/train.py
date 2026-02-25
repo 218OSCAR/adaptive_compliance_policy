@@ -24,7 +24,8 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 )
 def main(cfg: OmegaConf):
     # resolve immediately so all the ${now:} resolvers
-    # will use the same time.
+    # will use the same timestamp, and all the ${oc.env:} resolvers will read the env vars at the same time
+    
     OmegaConf.resolve(cfg)
 
     cls = hydra.utils.get_class(cfg._target_)

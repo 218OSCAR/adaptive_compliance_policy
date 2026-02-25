@@ -1,6 +1,11 @@
+# defaults:
+#   - _self_
+#   - task: cable_mounting_conv.yaml
+
 defaults:
   - _self_
   - task: cable_mounting_conv.yaml
+  - kinect: disabled
 
 name: multimodal_conv_230
 output_dir: ${oc.env:PYRITE_CHECKPOINT_FOLDERS}

@@ -1,8 +1,4 @@
 name: cable_mounting
-
-defaults:
-  - _self_
-  - kinect: off
 # =========================
 # Sampling params
 # =========================
@@ -276,7 +272,8 @@ env_runner:
 dataset:
   _target_: diffusion_policy.dataset.cable_mounting_dataset.CableMountingDataset
 
-  shape_meta: *shape_meta
+  # shape_meta: *shape_meta
+  shape_meta: ${task.shape_meta}
   dataset_path: ${task.dataset_path}
 
   # 与你现有 repo 默认一致

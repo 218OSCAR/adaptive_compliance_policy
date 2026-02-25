@@ -442,20 +442,24 @@ class TimmObsEncoderWithForce(ModuleAttrMixin):
 
         # process rgb input
         for key in self.rgb_keys:
+            if key not in obs_dict:
+                continue
+
             img = obs_dict[key]
+
+            # 只打印一次（确认rgb_2确实进了encoder）
+            if key == "rgb_2" and not hasattr(self, "_printed_rgb2"):
+                print("[CHECK] rgb_2 in encoder forward:", img.shape, img.dtype)
+                self._printed_rgb2 = True
+
             B, T = img.shape[:2]
             assert B == batch_size
             assert img.shape[2:] == self.key_shape_map[key]
+
             img = img.reshape(B * T, *img.shape[2:])
             img = self.key_transform_map[key](img)
             raw_feature = self.key_model_map[key](img)
 
-            # feature = self.aggregate_feature(
-            #     model_name=self.vision_encoder_cfg.model_name,
-            #     agg_mode=self.vision_encoder_cfg.feature_aggregation,
-            #     feature=raw_feature,
-            # )
-            # 如果已经是 (B*T, D)，直接用
             if raw_feature.dim() == 2:
                 feature = raw_feature
             else:
