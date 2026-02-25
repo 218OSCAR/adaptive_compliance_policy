@@ -12,6 +12,12 @@ add_virtual_target = {cmd = "python $PIXI_PROJECT_ROOT/PyriteEnvSuites/scripts/p
 
 show_preprocessed = {cmd = "python $PIXI_PROJECT_ROOT/PyriteEnvSuites/scripts/postprocess_add_virtual_target_label_multimodal.py   --dataset_path $PIXI_PROJECT_ROOT/data/real_processed   --right_id 0   --wrench_filter_mode lpf   --fs_hz 15 --cutoff_hz 3 --order 3   --half_window_size 3   --plot --plot_every_n 20"}
 
+[tasks.jupyter-lab]
+cmd = "jupyter lab --port={{port}} --no-browser"
+args = [
+  { "arg" = "port", "default" = "6657" }
+]
+
 
 [dependencies]
 python = ">=3.10"
@@ -24,6 +30,7 @@ pybind11 = "*"
 huggingface_hub = "*"
 ipykernel = "*"
 ipython = "*"
+jupyterlab = "*"
 
 [pypi-dependencies]
 torch = "*"
@@ -65,6 +72,9 @@ cmd = [
 args = [
   { "arg" = "config", "default" = "train_multimodal_conv_workspace" }
 ]
+
+
+
 
 # [feature.train.tasks.test]
 # cwd = "PyriteML"
