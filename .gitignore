@@ -163,10 +163,14 @@ cython_debug/
 #.idea/
 
 
-#datasets
+# Datasets
 *.zip
 data/
 vase_wiping_200/
+
+# Training
+training_outputs/
+
 # pixi environments
 .pixi/*
 !.pixi/config.toml
