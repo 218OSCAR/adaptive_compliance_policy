@@ -1,5 +1,8 @@
 name: cable_mounting
 
+defaults:
+  - _self_
+  - kinect: off
 # =========================
 # Sampling params
 # =========================
@@ -37,6 +40,9 @@ shape_meta: &shape_meta
       shape: [3, 224, 224]
       type: rgb
     rgb_1:
+      shape: [3, 224, 224]
+      type: rgb
+    rgb_2:
       shape: [3, 224, 224]
       type: rgb
     tactile:
@@ -79,6 +85,9 @@ shape_meta: &shape_meta
       shape: [1]
       type: timestamp
     rgb_time_stamps_1:
+      shape: [1]
+      type: timestamp
+    rgb_time_stamps_2:
       shape: [1]
       type: timestamp
     tactile_time_stamps:
@@ -265,8 +274,6 @@ env_runner:
   _target_: diffusion_policy.env_runner.real_pusht_image_runner.RealPushTImageRunner
 
 dataset:
-  # 强烈建议你新建/修改一个 dataset 类来支持 action_dim=30 非对称解码 & tactile
-  # 例如你可以从 VirtualTargetDataset 复制一份改成 CableMountingDataset
   _target_: diffusion_policy.dataset.cable_mounting_dataset.CableMountingDataset
 
   shape_meta: *shape_meta

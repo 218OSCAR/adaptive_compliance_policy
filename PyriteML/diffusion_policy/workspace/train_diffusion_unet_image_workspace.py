@@ -66,11 +66,30 @@ class TrainDiffusionUnetImageWorkspace(BaseWorkspace):
             print("==> reduce pretrained obs_encorder's lr")
         pretraiend_obs_encorder_params = list()
         # NOTE: avoid hardcoding value in the future, since we only have 1 pretrained model now, it's fine.
-        print("==> rgb keys: ", self.model.obs_encoder.rgb_keys)
-        for key in self.model.obs_encoder.rgb_keys:
+        # print("==> rgb keys: ", self.model.obs_encoder.rgb_keys)
+        # for key in self.model.obs_encoder.rgb_keys:
+        #     for param in self.model.obs_encoder.key_model_map[key].parameters():
+        #         if param.requires_grad:
+        #             pretraiend_obs_encorder_params.append(param)
+        print("==> rgb keys: ", getattr(self.model.obs_encoder, "rgb_keys", []))
+
+        pretraiend_obs_encorder_params = []
+        for key in getattr(self.model.obs_encoder, "rgb_keys", []):
+            if key not in self.model.obs_encoder.key_model_map:
+                print(f"[WARN] key '{key}' not in obs_encoder.key_model_map, skip pretrained lr group.")
+                continue
             for param in self.model.obs_encoder.key_model_map[key].parameters():
                 if param.requires_grad:
                     pretraiend_obs_encorder_params.append(param)
+
+        print(f"obs_encorder params: {len(pretraiend_obs_encorder_params)}")
+
+        param_groups = [{"params": self.model.model_sparse.parameters()}]
+        if len(pretraiend_obs_encorder_params) > 0:
+            param_groups.append({"params": pretraiend_obs_encorder_params, "lr": obs_encorder_lr})
+        else:
+            print("[WARN] no pretrained obs_encoder params found; using only model_sparse params.")
+
         print(f"obs_encorder params: {len(pretraiend_obs_encorder_params)}")
         param_groups = [
             {"params": self.model.model_sparse.parameters()},
@@ -202,6 +221,7 @@ class TrainDiffusionUnetImageWorkspace(BaseWorkspace):
         sample_batch = next(iter(train_dataloader))
         for key, attr in sample_batch["obs"]["sparse"].items():
             print("obs.sparse.key: ", key, attr.shape)
+        print("[DEBUG] obs_encoder.rgb_keys =", accelerator.unwrap_model(self.model).obs_encoder.rgb_keys)
         print("obs.sparse: ", sample_batch["action"]["sparse"].shape)
 
         # print action dimension

@@ -183,8 +183,11 @@ def convert_npz_dir_to_zarr(
     store = zarr.DirectoryStore(path=str(out_dir))
     root = zarr.open(store=store, mode="a")
 
-    # still 2 cameras / 2 arms for pose + rgb
-    id_list = [0, 1]  # 0: right, 1: left
+    # # still 2 cameras / 2 arms for pose + rgb
+    # id_list = [0, 1]  # 0: right, 1: left
+
+    # 3 cameras: 2 wrist + 1 kinect
+    id_list = [0, 1, 2]  # 0: rgb2(right), 1: rgb3(left), 2: kinect_rgb
     recorder = EpisodeDataBuffer(
         store_path=str(out_dir),
         camera_ids=id_list,
@@ -204,6 +207,7 @@ def convert_npz_dir_to_zarr(
     episode_wrench0_len = []
     episode_rgb0_len = []
     episode_rgb1_len = []
+    episode_rgb2_len = []
     episode_tactile_len = []
 
     skipped: List[Tuple[str, str]] = []
@@ -244,6 +248,7 @@ def convert_npz_dir_to_zarr(
             rgb0_t_ms = to_ms(npz, "rgb2_t", t0, expected_len=T)
             rgb1_t_ms = to_ms(npz, "rgb3_t", t0, expected_len=T)
             tactile_t_ms = to_ms(npz, "tactile_t", t0, expected_len=T)
+            kinect_t_ms = to_ms(npz, "kinect_rgb_t", t0, expected_len=T)
 
             robot0_t_ms = to_ms(npz, "vicon_tcp_right_t", t0, expected_len=T)
             robot1_t_ms = to_ms(npz, "vicon_tcp_left_t", t0, expected_len=T)
@@ -261,6 +266,7 @@ def convert_npz_dir_to_zarr(
             rgb0 = decode_jpeg_dict_sequence(npz["rgb2"], resize_hw, max_bad_ratio=max_bad_jpeg_ratio)
             rgb1 = decode_jpeg_dict_sequence(npz["rgb3"], resize_hw, max_bad_ratio=max_bad_jpeg_ratio)
             tactile_rgb = decode_jpeg_dict_sequence(npz["tactile"], resize_hw, max_bad_ratio=max_bad_jpeg_ratio)
+            kinect_rgb = decode_jpeg_dict_sequence(npz["kinect_rgb"], resize_hw, max_bad_ratio=max_bad_jpeg_ratio)
         except Exception as e:
             skipped.append((ep_id, f"image decode failed: {e}"))
             continue
@@ -305,12 +311,18 @@ def convert_npz_dir_to_zarr(
             continue
 
         # --- write via EpisodeDataBuffer (rgb + pose + timestamps for both hands) ---
-        rgb_shapes = {0: rgb0.shape, 1: rgb1.shape}
+        # rgb_shapes = {0: rgb0.shape, 1: rgb1.shape}
+        rgb_shapes = {0: rgb0.shape, 1: rgb1.shape, 2: kinect_rgb.shape}
         recorder.create_zarr_groups_for_episode(rgb_shapes, id_list, episode_id=ep_id)
 
+        # visual_observations = {
+        #     0: VideoData(rgb=rgb0, camera_id=0),
+        #     1: VideoData(rgb=rgb1, camera_id=1),
+        # }
         visual_observations = {
             0: VideoData(rgb=rgb0, camera_id=0),
             1: VideoData(rgb=rgb1, camera_id=1),
+            2: VideoData(rgb=kinect_rgb, camera_id=2),
         }
         # visual_time_stamps = [None] * (max(id_list) + 1)
         # visual_time_stamps[0] = t_ms
@@ -318,6 +330,7 @@ def convert_npz_dir_to_zarr(
         visual_time_stamps = [None] * (max(id_list) + 1)
         visual_time_stamps[0] = rgb0_t_ms
         visual_time_stamps[1] = rgb1_t_ms
+        visual_time_stamps[2] = kinect_t_ms
         recorder.save_video_for_episode(
             visual_observations=visual_observations,
             visual_time_stamps=visual_time_stamps,
@@ -360,6 +373,7 @@ def convert_npz_dir_to_zarr(
         episode_wrench0_len.append(T)
         episode_rgb0_len.append(T)
         episode_rgb1_len.append(T)
+        episode_rgb2_len.append(T)
         episode_tactile_len.append(T)
 
     # write meta
@@ -369,6 +383,7 @@ def convert_npz_dir_to_zarr(
     meta["episode_wrench0_len"] = zarr.array(np.array(episode_wrench0_len, dtype=np.int64))
     meta["episode_rgb0_len"] = zarr.array(np.array(episode_rgb0_len, dtype=np.int64))
     meta["episode_rgb1_len"] = zarr.array(np.array(episode_rgb1_len, dtype=np.int64))
+    meta["episode_rgb2_len"] = zarr.array(np.array(episode_rgb2_len, dtype=np.int64))
     meta["episode_tactile_len"] = zarr.array(np.array(episode_tactile_len, dtype=np.int64))
 
     print(f"\nAll done! Output zarr: {out_dir}")
