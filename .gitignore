@@ -170,3 +170,9 @@ vase_wiping_200/
 # pixi environments
 .pixi/*
 !.pixi/config.toml
+data_processed_script/
+
+
+# Training
+training_outputs/
+*.pt
