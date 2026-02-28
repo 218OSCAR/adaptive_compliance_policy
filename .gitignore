@@ -167,10 +167,6 @@ cython_debug/
 *.zip
 data/
 vase_wiping_200/
-
-# Training
-training_outputs/
-
 # pixi environments
 .pixi/*
 !.pixi/config.toml
