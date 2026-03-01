@@ -31,11 +31,15 @@ pybind11 = "*"
 ipykernel = "*"
 ipython = "*"
 jupyterlab = "*"
-
+ipympl = ">=0.10.0,<0.11"
+ipywidgets = ">=8.1.8,<9"
+anywidget = ">=0.9.21,<0.10"
 
 
 [system-requirements]
 cuda = "12.8"
+
+
 
 [pypi-dependencies]
 timm = "*"
@@ -63,6 +67,7 @@ imageio = { version = "*", extras = ["ffmpeg"] }
 plotly = "*"
 vit-pytorch = ">=1.7.12"
 imagecodecs = ">=2023.9.18"
+sam-2 = { git = "https://github.com/facebookresearch/sam2.git"}
 
 [feature.training.activation.env]
 PYRITE_RAW_DATASET_FOLDERS = "$PIXI_PROJECT_ROOT/data/real"
@@ -74,7 +79,7 @@ CUDA_VISIBLE_DEVICES = "0"
 [feature.training.tasks.train_policy]
 cwd = "PyriteML"
 cmd = [
-    "accelerate", "launch", "train.py", "--config-name={{config}}.yaml", "kinect=disabled"
+    "accelerate", "launch", "train.py", "--config-name={{config}}.yaml", "kinect=disabled", "kinect=disabled"
 ]
 args = [
   { "arg" = "config", "default" = "train_multimodal_conv_workspace" }
@@ -92,7 +97,15 @@ args = [
 depends-on = ["add_virtual_target"]
 
 
-
+[feature.training.tasks.train_policy_kinect]
+cwd = "PyriteML"
+cmd = [
+    "accelerate", "launch", "train.py", "--config-name={{config}}.yaml", "kinect=enabled"
+]
+args = [
+  { "arg" = "config", "default" = "train_multimodal_conv_workspace" }
+]
+depends-on = ["add_virtual_target"]
 
 # [feature.train.tasks.test]
 # cwd = "PyriteML"
