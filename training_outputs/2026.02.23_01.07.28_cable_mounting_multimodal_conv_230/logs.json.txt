@@ -1,1 +1,0 @@
-{"global_step": 0, "epoch": 0, "lr": 1.05e-06}
