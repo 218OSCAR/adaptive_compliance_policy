@@ -170,7 +170,9 @@ vase_wiping_200/
 # pixi environments
 .pixi/*
 !.pixi/config.toml
-data_processed_script/
+data_processed_script/segment
+data_processed_script/tmp_reprocess_frames
+data_processed_script/tmp_sam2_frames_aug
 
 
 # Training
