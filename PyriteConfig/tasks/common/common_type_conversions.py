@@ -22,6 +22,15 @@ import torch
 ## action_sample: len = action horizon, pose computed relative to current pose (id = 0)
 
 
+def _key_exists(data, key: str) -> bool:
+    """Return True if key exists in data (works for dict, zarr.Group, etc.)."""
+    try:
+        _ = data[key]
+        return True
+    except (KeyError, IndexError):
+        return False
+
+
 def raw_to_obs(
     raw_data: Union[zarr.Group, Dict[str, np.ndarray]],
     episode_data: dict,
@@ -37,39 +46,54 @@ def raw_to_obs(
       episode_data: output dictionary that matches shape_meta.obs
     """
     episode_data["obs"] = {}
-    # obs.rgb: keep entry, keep as compressed zarr array in memory
+    # obs.rgb and timestamp keys: copy directly from raw_data
     for key, attr in shape_meta["raw"].items():
         type = attr.get("type", "low_dim")
         if type == "rgb":
-            # obs.rgb: keep as compressed zarr array in memory
             episode_data["obs"][key] = raw_data[key]
+        elif type == "timestamp":
+            # Copy timestamp keys through (handles tactile_time_stamps etc.)
+            # Use .get() so missing keys (not yet in obs_raw) are silently skipped
+            val = raw_data[key] if hasattr(raw_data, '__getitem__') and _key_exists(raw_data, key) else None
+            if val is not None:
+                episode_data["obs"][key] = val if not hasattr(val, '__getitem__') else val[:]
 
     # obs.low_dim: load entry, convert to obs.low_dim
     for id in shape_meta["id_list"]:
         pose7_fb = raw_data[f"ts_pose_fb_{id}"]
-        wrench = raw_data[f"wrench_{id}"]
+        T = pose7_fb.shape[0]
 
         pose9_fb = su.SE3_to_pose9(su.pose7_to_SE3(pose7_fb))
 
         episode_data["obs"][f"robot{id}_eef_pos"] = pose9_fb[..., :3]
         episode_data["obs"][f"robot{id}_eef_rot_axis_angle"] = pose9_fb[..., 3:]
-        episode_data["obs"][f"robot{id}_eef_wrench"] = wrench[:]
 
         # optional: abs
         if "robot0_abs_eef_pos" in shape_meta["obs"].keys():
             episode_data["obs"][f"robot{id}_abs_eef_pos"] = pose9_fb[..., :3]
             episode_data["obs"][f"robot{id}_abs_eef_rot_axis_angle"] = pose9_fb[..., 3:]
 
-        # timestamps
-        episode_data["obs"][f"rgb_time_stamps_{id}"] = raw_data[
-            f"rgb_time_stamps_{id}"
-        ][:]
-        episode_data["obs"][f"robot_time_stamps_{id}"] = raw_data[
-            f"robot_time_stamps_{id}"
-        ][:]
-        episode_data["obs"][f"wrench_time_stamps_{id}"] = raw_data[
-            f"wrench_time_stamps_{id}"
-        ][:]
+        # fingertip width → robot{id}_fingertip_width
+        if f"robot{id}_fingertip_width" in shape_meta["obs"]:
+            fw_key = f"fingertip_width_{id}"
+            fw = raw_data[fw_key][:] if _key_exists(raw_data, fw_key) else np.zeros((T, 1), dtype=np.float64)
+            episode_data["obs"][f"robot{id}_fingertip_width"] = fw
+
+        # wrench: only for robots that have wrench in shape_meta
+        has_wrench = f"robot{id}_eef_wrench" in shape_meta["obs"]
+        wrench_key = f"wrench_{id}"
+        wt_key = f"wrench_time_stamps_{id}"
+        if has_wrench and _key_exists(raw_data, wrench_key):
+            episode_data["obs"][f"robot{id}_eef_wrench"] = raw_data[wrench_key][:]
+            episode_data["obs"][wt_key] = raw_data[wt_key][:] if _key_exists(raw_data, wt_key) else np.zeros(T)
+        else:
+            # No wrench sensor for this robot — fill zeros so downstream code stays consistent
+            episode_data["obs"][f"robot{id}_eef_wrench"] = np.zeros((T, 6), dtype=np.float64)
+            episode_data["obs"][wt_key] = np.zeros(T, dtype=np.float64)
+
+        # robot-indexed timestamps
+        episode_data["obs"][f"rgb_time_stamps_{id}"] = raw_data[f"rgb_time_stamps_{id}"][:]
+        episode_data["obs"][f"robot_time_stamps_{id}"] = raw_data[f"robot_time_stamps_{id}"][:]
 
 
 def raw_to_action9(
@@ -258,12 +282,14 @@ def sparse_obs_to_obs_sample(
         sparse_obs_processed[f"robot{id}_eef_pos"] = pose9_relative[..., :3]
         sparse_obs_processed[f"robot{id}_eef_rot_axis_angle"] = pose9_relative[..., 3:]
 
-        # solve relative wrench
-        SE3_i_base = su.SE3_inv(SE3_base_i)[-1]
-        wrench = su.transpose(su.SE3_to_adj(SE3_i_base)) @ np.expand_dims(
-            obs_sparse[f"robot{id}_eef_wrench"], -1
-        )
-        sparse_obs_processed[f"robot{id}_eef_wrench"] = np.squeeze(wrench)
+        # solve relative wrench (only for robots that have a wrench sensor)
+        wrench_key = f"robot{id}_eef_wrench"
+        if wrench_key in shape_meta.get("obs", {}) and wrench_key in obs_sparse:
+            SE3_i_base = su.SE3_inv(SE3_base_i)[-1]
+            wrench = su.transpose(su.SE3_to_adj(SE3_i_base)) @ np.expand_dims(
+                obs_sparse[wrench_key], -1
+            )
+            sparse_obs_processed[wrench_key] = np.squeeze(wrench)
 
         # double check the shape
         for key, attr in shape_meta["sample"]["obs"]["sparse"].items():
@@ -444,3 +470,124 @@ def action19_postprocess(
 
     # return pose matrices
     return action_SE3_absolute, action_SE3_vt_absolute, stiffness
+
+
+def action30_postprocess(
+    action: np.ndarray,
+    current_SE3: list,
+    id_list: list,
+):
+    """Convert 30-D policy output to world-frame SE3 matrices.
+
+    Asymmetric bimanual layout (cable_mounting task):
+
+      id=0 — compliant arm (has virtual target + stiffness):
+        action[...,  0: 9]  target pose9
+        action[...,  9:18]  virtual-target pose9
+        action[..., 18:19]  stiffness scalar
+        action[..., 19:20]  gripper (not decoded into SE3)
+
+      id=1 — position-only arm (no virtual target, no stiffness):
+        action[..., 20:29]  target pose9
+        action[..., 29:30]  gripper (not decoded into SE3)
+
+    Both pose9 sequences are expressed *relative* to the corresponding arm's
+    current EE pose (current_SE3[id]).  This function reverses that transform
+    to recover world-frame SE3 matrices.
+
+    Args:
+        action:      (T, 30) raw network output
+        current_SE3: list[id] → (4, 4) current EE pose in world frame,
+                     as returned by sparse_obs_to_obs_sample → base_SE3_WT
+        id_list:     robot ids, must be [0, 1] for this layout
+
+    Returns:
+        target_mats  list[id] → (T, 4, 4) absolute target SE3
+        vt_mats      list[id] → (T, 4, 4) absolute virtual-target SE3;
+                                vt_mats[1] == target_mats[1] (position-only)
+        stiffnesses  list[id] → (T,) scalar, or None for position-only arm
+        grippers     list[id] → (T,) gripper width command
+    """
+    assert action.shape[-1] == 30, f"Expected 30-D action, got {action.shape[-1]}"
+
+    n = max(id_list) + 1
+    target_mats = [None] * n
+    vt_mats     = [None] * n
+    stiffnesses = [None] * n
+    grippers    = [None] * n
+
+    # --- id=0 : compliant arm ---
+    SE3_0    = su.pose9_to_SE3(action[...,  0:9])
+    SE3_vt_0 = su.pose9_to_SE3(action[...,  9:18])
+    target_mats[0] = current_SE3[0] @ SE3_0
+    vt_mats[0]     = current_SE3[0] @ SE3_vt_0
+    stiffnesses[0] = action[..., 18]          # (T,)
+    grippers[0]    = action[..., 19]          # (T,) gripper width
+
+    # --- id=1 : position-only arm ---
+    SE3_1 = su.pose9_to_SE3(action[..., 20:29])
+    target_mats[1] = current_SE3[1] @ SE3_1
+    vt_mats[1]     = target_mats[1]           # no virtual target
+    stiffnesses[1] = None                      # no stiffness control
+    grippers[1]    = action[..., 29]          # (T,) gripper width
+
+    return target_mats, vt_mats, stiffnesses, grippers
+
+
+def action30_to_action_sample(
+    action_sparse: np.ndarray,  # (T, 30)
+    id_list: list,
+) -> dict:
+    """Prepare a 30-D action sample as training label.
+
+    Converts absolute poses to poses relative to the first timestep of each
+    arm independently.  Stiffness and gripper values pass through unchanged.
+
+    Layout mirrors action30_postprocess (see above).
+    """
+    action_processed = {"sparse": {}}
+    T, D = action_sparse.shape
+    assert D == 30, f"Expected 30-D action, got {D}"
+
+    def _preprocess_compliant(a20: np.ndarray) -> np.ndarray:
+        """Relativise pose9 and vt_pose9; pass stiffness and gripper through."""
+        pose9     = a20[:, 0:9]
+        pose9_vt  = a20[:, 9:18]
+        stiffness = a20[:, 18:19]
+        gripper   = a20[:, 19:20]
+
+        SE3    = su.pose9_to_SE3(pose9)
+        SE3_vt = su.pose9_to_SE3(pose9_vt)
+
+        SE3_base_inv = su.SE3_inv(SE3[0])
+        SE3_rel      = SE3_base_inv @ SE3
+        SE3_vt_rel   = SE3_base_inv @ SE3_vt
+
+        return np.concatenate([
+            su.SE3_to_pose9(SE3_rel),
+            su.SE3_to_pose9(SE3_vt_rel),
+            stiffness,
+            gripper,
+        ], axis=-1)  # (T, 20)
+
+    def _preprocess_position_only(a10: np.ndarray) -> np.ndarray:
+        """Relativise pose9; pass gripper through."""
+        pose9   = a10[:, 0:9]
+        gripper = a10[:, 9:10]
+
+        SE3 = su.pose9_to_SE3(pose9)
+        SE3_base_inv = su.SE3_inv(SE3[0])
+        SE3_rel = SE3_base_inv @ SE3
+
+        return np.concatenate([
+            su.SE3_to_pose9(SE3_rel),
+            gripper,
+        ], axis=-1)  # (T, 10)
+
+    action_processed["sparse"] = np.concatenate([
+        _preprocess_compliant(action_sparse[:, :20]),      # id=0
+        _preprocess_position_only(action_sparse[:, 20:]),  # id=1
+    ], axis=-1)
+
+    assert action_processed["sparse"].shape == (T, D)
+    return action_processed

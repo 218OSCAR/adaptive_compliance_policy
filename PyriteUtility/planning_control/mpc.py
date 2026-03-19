@@ -53,22 +53,27 @@ class ModelPredictiveControllerHybrid():
         self.shape_meta = shape_meta
         self.id_list = id_list
 
-        action_type = "pose9" # "pose9" or "pose9pose9s1"
-        if shape_meta['action']['shape'][0] == 9:
+        # "pose9"            — single arm, position only (action dim 9)
+        # "pose9pose9s1"     — one or two arms, all compliant (action dim 19 or 38)
+        # "pose9pose9s1_pos9" — two arms, id=0 compliant + id=1 position-only (action dim 30)
+        action_dim = shape_meta['action']['shape'][0]
+        if action_dim == 9:
             action_type = "pose9"
-        elif shape_meta['action']['shape'][0] == 19:
+        elif action_dim in (19, 38):
             action_type = "pose9pose9s1"
-        elif shape_meta['action']['shape'][0] == 38:
-            action_type = "pose9pose9s1"
+        elif action_dim == 30:
+            action_type = "pose9pose9s1_pos9"
         else:
-            raise RuntimeError('unsupported')
+            raise RuntimeError(f'unsupported action dim {action_dim}')
 
         if action_type == "pose9":
             action_postprocess = task.action9_postprocess
         elif action_type == "pose9pose9s1":
             action_postprocess = task.action19_postprocess
+        elif action_type == "pose9pose9s1_pos9":
+            action_postprocess = task.action30_postprocess
         else:
-            raise RuntimeError('unsupported')
+            raise RuntimeError(f'unsupported action_type {action_type}')
         self.action_type = action_type
         self.action_postprocess = action_postprocess
 
@@ -169,13 +174,15 @@ class ModelPredictiveControllerHybrid():
                 self.sparse_action = self.compute_sparse_control(device)
             elif self.action_type == "pose9pose9s1":
                 self.sparse_target_mats, self.sparse_vt_mats, self.stiffness = self.compute_sparse_control(device)
+            elif self.action_type == "pose9pose9s1_pos9":
+                self.sparse_target_mats, self.sparse_vt_mats, self.stiffness, self.sparse_grippers = self.compute_sparse_control(device)
             else:
-                raise RuntimeError('unsupported')
-            
+                raise RuntimeError(f'unsupported action_type {self.action_type}')
+
             sparse_action_timesteps = np.arange(0, sparse_action_horizon) * sparse_action_down_sample_steps
             if self.action_type == "pose9":
                 self.sparse_action_traj = self.action_to_trajectory(action_mats = self.sparse_action, time_steps = sparse_action_timesteps)
-            elif self.action_type == "pose9pose9s1":
+            elif self.action_type in ("pose9pose9s1", "pose9pose9s1_pos9"):
                 self.sparse_action_traj = self.action_to_trajectory(target_mats = self.sparse_target_mats,
                                                                     vt_mats = self.sparse_target_mats, # debug self.sparse_vt_mats,
                                                                     stiffness = self.stiffness,
